@@ -1,0 +1,15 @@
+services:
+  satip-align:
+    build: .
+    container_name: satip-align
+    restart: unless-stopped
+    ports:
+      - "9081:9081"
+    environment:
+      - PORT=9081
+    network_mode: host
+    # host networking gives the SAT>IP RTSP client a real source IP,
+    # which some devices require in the Transport header
+    volumes:
+      - ./templates:/app/templates:ro
+      - ./static:/app/static:ro

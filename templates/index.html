@@ -1,0 +1,1005 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0d1117">
+<title>SAT&gt;IP Dish Aligner</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --surface2: #1f2937;
+  --border: #30363d;
+  --accent: #4fc3f7;
+  --accent2: #38bdf8;
+  --text: #e6edf3;
+  --muted: #8b949e;
+  --good: #3fb950;
+  --warn: #d29922;
+  --bad: #f85149;
+  --radius: 10px;
+  --radius-sm: 6px;
+}
+html, body { height: 100%; }
+body {
+  background: var(--bg); color: var(--text);
+  font: 16px/1.5 system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--accent); }
+
+/* layout */
+.app { display: flex; flex-direction: column; min-height: 100%; }
+.header {
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  padding: 14px 16px 0; display: flex; flex-direction: column; gap: 0;
+}
+.header-top { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.header-top h1 { font-size: 1.15rem; font-weight: 700; letter-spacing: -.01em; }
+.header-top .icon { font-size: 1.4rem; flex-shrink: 0; }
+.tabs { display: flex; gap: 4px; }
+.tab-btn {
+  flex: 1; padding: 8px 12px; background: transparent; border: none;
+  border-bottom: 3px solid transparent; color: var(--muted);
+  font-size: .93rem; font-weight: 600; cursor: pointer;
+  transition: color .15s, border-color .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab-btn:hover:not(.active) { color: var(--text); }
+
+.main { flex: 1; padding: 16px; max-width: 680px; width: 100%; margin: 0 auto; }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
+/* cards */
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 16px; margin-bottom: 14px;
+}
+.card-title { font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 10px; }
+
+/* form elements */
+label { display: block; font-size: .88rem; color: var(--muted); margin-bottom: 4px; }
+input[type=text], input[type=number], select {
+  display: block; width: 100%;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); color: var(--text);
+  font-size: 1rem; padding: 10px 12px; outline: none;
+  -webkit-appearance: none; appearance: none;
+  transition: border-color .15s;
+}
+input:focus, select:focus { border-color: var(--accent); }
+select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238b949e' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; padding-right: 36px; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+.form-group { margin-bottom: 12px; }
+
+/* buttons */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: 6px; padding: 10px 18px; border: none; border-radius: var(--radius-sm);
+  font-size: .95rem; font-weight: 600; cursor: pointer;
+  transition: opacity .15s, background .15s; white-space: nowrap;
+  -webkit-tap-highlight-color: transparent; min-height: 44px;
+}
+.btn-primary { background: var(--accent); color: #000; }
+.btn-primary:hover { opacity: .88; }
+.btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+.btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+.btn-danger { background: rgba(248,81,73,.15); color: var(--bad); border: 1px solid rgba(248,81,73,.35); }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn-group { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+
+/* results grid */
+.results { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-top: 12px; }
+.result-card {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 12px; text-align: center;
+}
+.result-label { font-size: .72rem; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin-bottom: 4px; }
+.result-value { font-size: 1.5rem; font-weight: 700; color: var(--accent); line-height: 1.1; }
+.result-sub { font-size: .75rem; color: var(--muted); margin-top: 2px; }
+
+/* compass */
+.compass-wrap {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 12px; margin-top: 16px;
+}
+#compassSvg { width: 180px; height: 180px; max-width: 100%; }
+
+/* signal bars */
+.signal-card {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 14px; margin-bottom: 10px;
+}
+.signal-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.signal-title { font-weight: 700; }
+.lock-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 10px; border-radius: 999px; font-size: .8rem; font-weight: 700;
+  transition: background .3s, color .3s;
+}
+.lock-badge.locked { background: rgba(63,185,80,.18); color: var(--good); border: 1px solid rgba(63,185,80,.4); }
+.lock-badge.unlocked { background: rgba(248,81,73,.15); color: var(--bad); border: 1px solid rgba(248,81,73,.35); }
+.lock-badge.waiting { background: rgba(210,153,34,.15); color: var(--warn); border: 1px solid rgba(210,153,34,.35); }
+
+.bar-row { margin-bottom: 8px; }
+.bar-label { display: flex; justify-content: space-between; font-size: .82rem; color: var(--muted); margin-bottom: 4px; }
+.bar-track {
+  height: 12px; background: rgba(255,255,255,.07); border-radius: 6px; overflow: hidden;
+}
+.bar-fill {
+  height: 100%; border-radius: 6px; transition: width .5s ease;
+  background: linear-gradient(90deg, var(--accent2), var(--accent));
+  min-width: 0; width: 0%;
+}
+.bar-fill.good { background: linear-gradient(90deg, #22c55e, #3fb950); }
+.bar-fill.warn { background: linear-gradient(90deg, #f59e0b, #d29922); }
+.bar-fill.bad  { background: linear-gradient(90deg, #ef4444, #f85149); }
+
+.transponder-row { font-size: .8rem; color: var(--muted); margin-bottom: 8px; }
+
+/* helper text */
+.hint { font-size: .8rem; color: var(--muted); margin-top: 6px; line-height: 1.4; }
+.error-msg { color: var(--bad); font-size: .85rem; margin-top: 6px; }
+.hidden { display: none !important; }
+
+/* divider */
+hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
+
+/* mag note */
+.mag-note {
+  background: rgba(210,153,34,.1); border: 1px solid rgba(210,153,34,.3);
+  border-radius: var(--radius-sm); padding: 10px 12px;
+  font-size: .82rem; color: var(--warn); margin-top: 10px;
+}
+
+/* direction label */
+.dir-label { font-size: .88rem; color: var(--muted); margin-top: 6px; }
+
+/* status dot */
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.dot.green { background: var(--good); }
+.dot.red   { background: var(--bad); }
+.dot.amber { background: var(--warn); }
+
+/* live align */
+.live-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0; }
+.live-axis {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 12px; text-align: center;
+  transition: border-color .3s, background .3s;
+}
+.live-axis.on  { border-color: rgba(63,185,80,.6); background: rgba(63,185,80,.07); }
+.live-axis.off { border-color: rgba(248,81,73,.5); background: rgba(248,81,73,.05); }
+.live-axis.near { border-color: rgba(210,153,34,.5); background: rgba(210,153,34,.06); }
+.axis-label  { font-size: .72rem; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
+.axis-live   { font-size: 1.8rem; font-weight: 800; line-height: 1.1; margin: 4px 0; transition: color .3s; }
+.axis-target { font-size: .82rem; color: var(--muted); }
+.axis-diff   { font-size: .9rem; font-weight: 700; margin-top: 3px; transition: color .3s; }
+.crosshair-wrap { display: flex; justify-content: center; margin: 10px 0; }
+#xhairSvg { width: 220px; height: 220px; touch-action: none; }
+.on-target-banner {
+  background: rgba(63,185,80,.15); border: 1px solid rgba(63,185,80,.5);
+  border-radius: var(--radius-sm); padding: 12px 16px; text-align: center;
+  font-size: 1.05rem; font-weight: 700; color: var(--good); margin-top: 10px;
+}
+.sensor-status { font-size: .8rem; color: var(--muted); margin-top: 6px; text-align: center; }
+.instr-step {
+  display: flex; gap: 10px; align-items: flex-start; margin-bottom: 10px; font-size: .88rem;
+}
+.instr-num {
+  flex-shrink: 0; width: 24px; height: 24px; border-radius: 50%;
+  background: var(--accent); color: #000; font-weight: 800;
+  display: flex; align-items: center; justify-content: center; font-size: .8rem;
+}
+.no-target-msg { color: var(--muted); font-size: .88rem; text-align: center; padding: 20px 0; }
+
+@media (max-width: 420px) {
+  .row3 { grid-template-columns: 1fr 1fr; }
+  .result-value { font-size: 1.25rem; }
+  #xhairSvg { width: 180px; height: 180px; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="header">
+    <div class="header-top">
+      <span class="icon">📡</span>
+      <h1>SAT&gt;IP Dish Aligner</h1>
+    </div>
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="alignment">Alignment</button>
+      <button class="tab-btn" data-tab="live">Live Align</button>
+      <button class="tab-btn" data-tab="signal">Signal Monitor</button>
+    </div>
+  </div>
+
+  <div class="main">
+
+    <!-- ── ALIGNMENT TAB ─────────────────────────────────────────────────── -->
+    <div class="tab-panel active" id="tab-alignment">
+
+      <div class="card">
+        <div class="card-title">Location</div>
+        <div class="form-group">
+          <label>UK Postcode</label>
+          <div style="display:flex;gap:8px;">
+            <input type="text" id="postcode" placeholder="e.g. SK6 1AA" autocomplete="postal-code"
+                   inputmode="text" style="flex:1">
+            <button class="btn btn-secondary" id="btnLookup" style="flex-shrink:0">Look up</button>
+          </div>
+          <div class="hint">Looks up your coordinates via postcodes.io (requires internet).</div>
+          <div class="error-msg hidden" id="postcodeError"></div>
+        </div>
+        <hr>
+        <div class="form-group">
+          <label>Or enter coordinates manually</label>
+          <div class="row2">
+            <div>
+              <label>Latitude (°N)</label>
+              <input type="number" id="lat" placeholder="51.5074" step="0.0001" min="-90" max="90" inputmode="decimal">
+            </div>
+            <div>
+              <label>Longitude (°E)</label>
+              <input type="number" id="lon" placeholder="-0.1278" step="0.0001" min="-180" max="180" inputmode="decimal">
+            </div>
+          </div>
+          <div id="locationName" class="hint hidden"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Satellite</div>
+        <div class="form-group">
+          <label>Target satellite</label>
+          <select id="satSelect">
+            {% for sat in satellites %}
+            <option value="{{ sat.lon }}">{{ sat.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="btn-group">
+          <button class="btn btn-primary" id="btnCalculate">Calculate pointing</button>
+        </div>
+        <div class="error-msg hidden" id="calcError"></div>
+      </div>
+
+      <!-- Results -->
+      <div id="resultsSection" class="hidden">
+        <div class="card">
+          <div class="card-title">Dish pointing</div>
+          <div class="results">
+            <div class="result-card">
+              <div class="result-label">Azimuth</div>
+              <div class="result-value" id="resAz">—</div>
+              <div class="result-sub" id="resAzDir">from True North</div>
+            </div>
+            <div class="result-card">
+              <div class="result-label">Elevation</div>
+              <div class="result-value" id="resEl">—</div>
+              <div class="result-sub">above horizon</div>
+            </div>
+            <div class="result-card">
+              <div class="result-label">LNB Skew</div>
+              <div class="result-value" id="resSkew">—</div>
+              <div class="result-sub" id="resSkewDir">rotation</div>
+            </div>
+          </div>
+
+          <div class="compass-wrap">
+            <svg id="compassSvg" viewBox="0 0 200 200" aria-label="Compass bearing diagram">
+              <!-- outer ring -->
+              <circle cx="100" cy="100" r="90" fill="none" stroke="#30363d" stroke-width="1.5"/>
+              <!-- tick marks -->
+              <g id="compassTicks" stroke="#30363d" stroke-width="1"></g>
+              <!-- labels N E S W -->
+              <text x="100" y="16" text-anchor="middle" fill="#8b949e" font-size="11" font-weight="700">N</text>
+              <text x="186" y="104" text-anchor="middle" fill="#8b949e" font-size="11" font-weight="700">E</text>
+              <text x="100" y="196" text-anchor="middle" fill="#8b949e" font-size="11" font-weight="700">S</text>
+              <text x="14" y="104" text-anchor="middle" fill="#8b949e" font-size="11" font-weight="700">W</text>
+              <!-- bearing arrow group, rotated by JS -->
+              <g id="compassArrow" transform="rotate(0,100,100)">
+                <polygon points="100,22 95,100 105,100" fill="#4fc3f7" opacity="0.9"/>
+                <circle cx="100" cy="100" r="5" fill="#4fc3f7"/>
+              </g>
+              <!-- azimuth label -->
+              <text id="compassAzLabel" x="100" y="120" text-anchor="middle" fill="#4fc3f7"
+                    font-size="13" font-weight="700" dy=".3em"></text>
+            </svg>
+            <div class="dir-label" id="compassDirLabel"></div>
+          </div>
+
+          <div class="mag-note" id="magNote">
+            ⚠ Azimuth is from <strong>True North</strong>. On a magnetic compass subtract the local
+            magnetic declination (UK ≈ 0–2°W in 2026, so add 0–2° to compass reading).
+            <a href="https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml" target="_blank" rel="noopener">
+              Check exact declination →</a>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">How to use these values</div>
+          <div style="font-size:.88rem;color:var(--muted);line-height:1.6;">
+            <p><strong style="color:var(--text)">Azimuth</strong> — face the direction shown on the compass.
+               For a wall mount, this is the horizontal bearing of the dish from behind.</p>
+            <p style="margin-top:6px"><strong style="color:var(--text)">Elevation</strong> — tilt the dish up from horizontal by this angle.
+               Most motorised mounts show this on a protractor scale.</p>
+            <p style="margin-top:6px"><strong style="color:var(--text)">LNB Skew</strong> — rotate the LNB collar by this angle relative to its neutral position.
+               Positive = clockwise, negative = anticlockwise, when viewed <em>from behind</em> the dish.
+               UK/Astra 2 is typically +20–26° (clockwise). Some LNBs mark the angle on the collar; <strong>±5° tolerance</strong> is fine.</p>
+            <p style="margin-top:6px">Use the <strong style="color:var(--accent)">Signal Monitor</strong> tab to peak signal after rough alignment.</p>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /alignment -->
+
+    <!-- ── LIVE ALIGN TAB ────────────────────────────────────────────────── -->
+    <div class="tab-panel" id="tab-live">
+
+      <div class="card" id="liveTargetCard">
+        <div class="card-title">Target pointing</div>
+        <div id="liveNoTarget" class="no-target-msg">
+          Go to the <strong>Alignment</strong> tab, enter your location and calculate pointing first.
+        </div>
+        <div id="liveTargetValues" class="hidden">
+          <div class="results" style="margin-top:0">
+            <div class="result-card">
+              <div class="result-label">Target azimuth</div>
+              <div class="result-value" id="ltAz">—</div>
+              <div class="result-sub" id="ltAzDir"></div>
+            </div>
+            <div class="result-card">
+              <div class="result-label">Target elevation</div>
+              <div class="result-value" id="ltEl">—</div>
+            </div>
+            <div class="result-card">
+              <div class="result-label">LNB skew</div>
+              <div class="result-value" id="ltSkew">—</div>
+              <div class="result-sub" id="ltSkewDir"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Live compass &amp; tilt</div>
+
+        <div id="sensorStartSection">
+          <button class="btn btn-primary" id="btnStartSensors" style="width:100%">
+            Enable compass &amp; tilt sensors
+          </button>
+          <div class="hint" style="text-align:center;margin-top:6px">
+            iOS: tap to grant motion permission. Android: starts immediately.
+          </div>
+        </div>
+
+        <div id="sensorActiveSection" class="hidden">
+
+          <!-- crosshair bubble display -->
+          <div class="crosshair-wrap">
+            <svg id="xhairSvg" viewBox="0 0 220 220" aria-label="Dish pointing crosshair">
+              <!-- outer tolerance rings -->
+              <circle cx="110" cy="110" r="100" fill="none" stroke="#30363d" stroke-width="1"/>
+              <circle cx="110" cy="110" r="50"  fill="none" stroke="#30363d" stroke-width="1" stroke-dasharray="4 4"/>
+              <!-- crosshair lines -->
+              <line x1="10" y1="110" x2="210" y2="110" stroke="#30363d" stroke-width="1"/>
+              <line x1="110" y1="10"  x2="110" y2="210" stroke="#30363d" stroke-width="1"/>
+              <!-- axis labels -->
+              <text x="110" y="8"   text-anchor="middle" fill="#8b949e" font-size="9">EL+</text>
+              <text x="110" y="218" text-anchor="middle" fill="#8b949e" font-size="9">EL−</text>
+              <text x="4"   y="113" text-anchor="start"  fill="#8b949e" font-size="9">AZ−</text>
+              <text x="216" y="113" text-anchor="end"    fill="#8b949e" font-size="9">AZ+</text>
+              <!-- range labels -->
+              <text x="158" y="108" fill="#8b949e" font-size="8">5°</text>
+              <text x="208" y="108" fill="#8b949e" font-size="8">10°</text>
+              <!-- moving dot — start at centre -->
+              <circle id="xhairDot" cx="110" cy="110" r="12"
+                      fill="#d29922" stroke="rgba(0,0,0,.3)" stroke-width="1.5"
+                      style="transition:cx .25s,cy .25s,fill .25s"/>
+              <!-- on-target inner ring (hidden unless locked) -->
+              <circle id="xhairRing" cx="110" cy="110" r="16"
+                      fill="none" stroke="#3fb950" stroke-width="2" opacity="0"
+                      style="transition:opacity .3s"/>
+            </svg>
+          </div>
+
+          <!-- numeric readouts -->
+          <div class="live-grid">
+            <div class="live-axis" id="axAz">
+              <div class="axis-label">Azimuth</div>
+              <div class="axis-live" id="liveAzVal">—</div>
+              <div class="axis-target" id="liveAzTarget"></div>
+              <div class="axis-diff" id="liveAzDiff"></div>
+            </div>
+            <div class="live-axis" id="axEl">
+              <div class="axis-label">Elevation</div>
+              <div class="axis-live" id="liveElVal">—</div>
+              <div class="axis-target" id="liveElTarget"></div>
+              <div class="axis-diff" id="liveElDiff"></div>
+            </div>
+          </div>
+
+          <div id="onTargetBanner" class="on-target-banner hidden">
+            ✓ On target — set LNB skew to <span id="onTargetSkew">—</span>
+          </div>
+
+          <div class="sensor-status" id="sensorStatusLine">Waiting for sensor data…</div>
+
+          <div class="btn-group" style="margin-top:10px">
+            <button class="btn btn-danger" id="btnStopSensors" style="flex:1">Stop sensors</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">How to use</div>
+        <div class="instr-step">
+          <div class="instr-num">1</div>
+          <div>Calculate the target pointing on the <strong>Alignment</strong> tab — enter your postcode and select Astra 2 (28.2°E).</div>
+        </div>
+        <div class="instr-step">
+          <div class="instr-num">2</div>
+          <div>Hold or rest the phone <strong>flat on the main dish arm</strong> (the long strut the LNB sits on), screen facing up, with the <strong>top of the phone pointing toward the satellite</strong> — roughly south-east for Astra 2 from the UK.</div>
+        </div>
+        <div class="instr-step">
+          <div class="instr-num">3</div>
+          <div>Tap <strong>Enable sensors</strong>. The crosshair dot shows where you are relative to the target. Move the dish until the dot reaches the centre and turns green.</div>
+        </div>
+        <div class="instr-step">
+          <div class="instr-num">4</div>
+          <div>When both azimuth and elevation are green, tighten the mount bolts, then rotate the LNB collar by the <strong>skew</strong> angle shown — clockwise for a positive value.</div>
+        </div>
+        <div class="hint" style="margin-top:4px">
+          <strong>Crosshair scale:</strong> inner dashed ring = 5°, outer ring = 10°.
+          Tolerance zones: azimuth ±2°, elevation ±1°.<br>
+          <strong>Compass note:</strong> keep the phone away from the dish motor/clamp when reading azimuth — metal affects the magnetometer. Calibrate by waving the phone in a figure-8 if readings look wrong.
+        </div>
+      </div>
+
+    </div><!-- /live -->
+
+    <!-- ── SIGNAL MONITOR TAB ─────────────────────────────────────────────── -->
+    <div class="tab-panel" id="tab-signal">
+
+      <div class="card">
+        <div class="card-title">SAT&gt;IP Server</div>
+        <div class="row2">
+          <div class="form-group">
+            <label>Host / IP address</label>
+            <input type="text" id="satipHost" placeholder="192.168.1.100"
+                   autocomplete="off" autocorrect="off" inputmode="url">
+          </div>
+          <div class="form-group">
+            <label>RTSP Port</label>
+            <input type="number" id="satipPort" value="554" min="1" max="65535" inputmode="numeric">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Number of LNB inputs (src=)</label>
+          <input type="number" id="srcCount" value="1" min="1" max="8" inputmode="numeric">
+          <div class="hint">Each src corresponds to one LNB or DiSEqC port. Tune all will start a session for each.</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Transponder</div>
+        <div class="form-group">
+          <label>Preset (Astra 28.2°E)</label>
+          <select id="presetSelect">
+            {% for p in presets %}
+            <option value="{{ loop.index0 }}">{{ p.label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="btn-group">
+          <button class="btn btn-primary" id="btnTuneAll">Tune all LNBs</button>
+          <button class="btn btn-danger hidden" id="btnStop">Stop monitoring</button>
+        </div>
+        <div class="error-msg hidden" id="tuneError"></div>
+      </div>
+
+      <!-- Live signal cards injected here -->
+      <div id="signalCards"></div>
+
+      <div id="signalIdle" style="color:var(--muted);font-size:.88rem;text-align:center;padding:20px 0">
+        Enter SAT&gt;IP server details and click <strong>Tune all LNBs</strong> to start monitoring.
+      </div>
+
+    </div><!-- /signal -->
+
+  </div><!-- /main -->
+</div><!-- /app -->
+
+<script>
+'use strict';
+
+// ── presets from Flask template ────────────────────────────────────────────
+const PRESETS = {{ presets | tojson }};
+const SATELLITES = {{ satellites | tojson }};
+
+// ── tab switching ──────────────────────────────────────────────────────────
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+  });
+});
+
+// ── satellite pointing math (all client-side) ──────────────────────────────
+function degToRad(d) { return d * Math.PI / 180; }
+function radToDeg(r) { return r * 180 / Math.PI; }
+
+function dishPointing(latDeg, lonDeg, satLonDeg) {
+  const lat = degToRad(latDeg);
+  const dLon = degToRad(satLonDeg - lonDeg);
+  // Earth/GSO radius ratio: R_E=6378.137, R_GSO=42164.2
+  const K = 6378.137 / 42164.2;
+  // Central angle between observer and sub-satellite point
+  const a = Math.acos(Math.max(-1, Math.min(1, Math.cos(lat) * Math.cos(dLon))));
+  // Elevation
+  const elRad = Math.atan2(Math.cos(a) - K, Math.sin(a));
+  const elevation = radToDeg(elRad);
+  // Azimuth from True North, clockwise — atan2(sin ΔL, -sin φ · cos ΔL) works for both hemispheres
+  const azimuth = (radToDeg(Math.atan2(Math.sin(dLon), -Math.sin(lat) * Math.cos(dLon))) + 360) % 360;
+  // LNB skew: positive = clockwise viewed from front of dish
+  const skew = radToDeg(Math.atan2(Math.sin(dLon), Math.tan(lat)));
+  return { elevation, azimuth, skew };
+}
+
+function bearingToCardinal(az) {
+  const dirs = ['N','NNE','NE','ENE','E','ESE','SE','SSE',
+                'S','SSW','SW','WSW','W','WNW','NW','NNW'];
+  return dirs[Math.round(az / 22.5) % 16];
+}
+
+// ── compass drawing ────────────────────────────────────────────────────────
+function drawCompassTicks() {
+  const g = document.getElementById('compassTicks');
+  g.innerHTML = '';
+  for (let i = 0; i < 36; i++) {
+    const ang = degToRad(i * 10 - 90);
+    const major = i % 9 === 0;
+    const r1 = major ? 80 : 85;
+    const r2 = 90;
+    const x1 = 100 + r1 * Math.cos(ang);
+    const y1 = 100 + r1 * Math.sin(ang);
+    const x2 = 100 + r2 * Math.cos(ang);
+    const y2 = 100 + r2 * Math.sin(ang);
+    const line = document.createElementNS('http://www.w3.org/2000/svg','line');
+    line.setAttribute('x1', x1); line.setAttribute('y1', y1);
+    line.setAttribute('x2', x2); line.setAttribute('y2', y2);
+    line.setAttribute('stroke-width', major ? 1.5 : 1);
+    g.appendChild(line);
+  }
+}
+drawCompassTicks();
+
+function setCompassBearing(az) {
+  document.getElementById('compassArrow').setAttribute('transform', `rotate(${az},100,100)`);
+  document.getElementById('compassAzLabel').textContent = az.toFixed(1) + '°';
+  document.getElementById('compassDirLabel').textContent = bearingToCardinal(az);
+}
+
+// ── alignment tab logic ────────────────────────────────────────────────────
+document.getElementById('btnLookup').addEventListener('click', async () => {
+  const pc = document.getElementById('postcode').value.trim();
+  const errEl = document.getElementById('postcodeError');
+  const nameEl = document.getElementById('locationName');
+  errEl.classList.add('hidden');
+  if (!pc) { errEl.textContent = 'Enter a postcode first.'; errEl.classList.remove('hidden'); return; }
+
+  const btn = document.getElementById('btnLookup');
+  btn.disabled = true; btn.textContent = 'Looking up…';
+  try {
+    const r = await fetch('/api/postcode/' + encodeURIComponent(pc.replace(/\s+/g,'')));
+    const data = await r.json();
+    if (!r.ok) { errEl.textContent = data.error || 'Not found'; errEl.classList.remove('hidden'); return; }
+    document.getElementById('lat').value = data.lat.toFixed(6);
+    document.getElementById('lon').value = data.lon.toFixed(6);
+    nameEl.textContent = data.place || pc;
+    nameEl.classList.remove('hidden');
+  } catch(e) {
+    errEl.textContent = 'Network error: ' + e.message;
+    errEl.classList.remove('hidden');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Look up';
+  }
+});
+
+// Target pointing shared with Live Align tab
+let targetAz = null, targetEl = null, targetSkew = null;
+
+document.getElementById('btnCalculate').addEventListener('click', () => {
+  const errEl = document.getElementById('calcError');
+  errEl.classList.add('hidden');
+
+  const lat = parseFloat(document.getElementById('lat').value);
+  const lon = parseFloat(document.getElementById('lon').value);
+  const satLon = parseFloat(document.getElementById('satSelect').value);
+
+  if (isNaN(lat) || lat < -90 || lat > 90) {
+    errEl.textContent = 'Enter a valid latitude (-90 to 90).';
+    errEl.classList.remove('hidden'); return;
+  }
+  if (isNaN(lon) || lon < -180 || lon > 180) {
+    errEl.textContent = 'Enter a valid longitude (-180 to 180).';
+    errEl.classList.remove('hidden'); return;
+  }
+
+  const { elevation, azimuth, skew } = dishPointing(lat, lon, satLon);
+
+  if (elevation < 0) {
+    errEl.textContent = `Satellite is below the horizon (elevation ${elevation.toFixed(1)}°) from this location — it cannot be received.`;
+    errEl.classList.remove('hidden'); return;
+  }
+
+  document.getElementById('resAz').textContent = azimuth.toFixed(1) + '°';
+  document.getElementById('resEl').textContent = elevation.toFixed(1) + '°';
+  const skewSign = skew >= 0 ? '+' : '';
+  document.getElementById('resSkew').textContent = skewSign + skew.toFixed(1) + '°';
+  document.getElementById('resSkewDir').textContent = skew < 0 ? 'anticlockwise' : 'clockwise';
+  document.getElementById('resAzDir').textContent = bearingToCardinal(azimuth) + ' from True North';
+  setCompassBearing(azimuth);
+  document.getElementById('resultsSection').classList.remove('hidden');
+
+  // Share with Live Align tab
+  targetAz = azimuth; targetEl = elevation; targetSkew = skew;
+  updateLiveTarget();
+});
+
+// ── signal monitor tab ─────────────────────────────────────────────────────
+let signalPollTimer = null;
+let monitoring = false;
+
+function makeSignalCard(src) {
+  const d = document.createElement('div');
+  d.className = 'signal-card';
+  d.id = `srcCard${src}`;
+  d.innerHTML = `
+    <div class="signal-header">
+      <div class="signal-title">LNB ${src} (src=${src})</div>
+      <div class="lock-badge waiting" id="lockBadge${src}">
+        <span class="dot amber" id="lockDot${src}"></span> Connecting…
+      </div>
+    </div>
+    <div class="transponder-row" id="transponder${src}">—</div>
+    <div class="error-detail hidden" id="errDetail${src}" style="font-size:.78rem;color:var(--bad);margin-bottom:6px;word-break:break-all"></div>
+    <div class="bar-row">
+      <div class="bar-label"><span>Signal</span><span id="sigPct${src}">—</span></div>
+      <div class="bar-track"><div class="bar-fill" id="sigBar${src}"></div></div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label"><span>Quality</span><span id="qualPct${src}">—</span></div>
+      <div class="bar-track"><div class="bar-fill" id="qualBar${src}"></div></div>
+    </div>
+  `;
+  return d;
+}
+
+function barColor(pct) {
+  if (pct >= 65) return 'good';
+  if (pct >= 35) return 'warn';
+  return 'bad';
+}
+
+function updateSignalCard(src, data) {
+  const lockBadge = document.getElementById(`lockBadge${src}`);
+  const lockDot = document.getElementById(`lockDot${src}`);
+  const sigBar = document.getElementById(`sigBar${src}`);
+  const sigPct = document.getElementById(`sigPct${src}`);
+  const qualBar = document.getElementById(`qualBar${src}`);
+  const qualPct = document.getElementById(`qualPct${src}`);
+  const trans = document.getElementById(`transponder${src}`);
+  if (!lockBadge) return;
+
+  const errDetail = document.getElementById(`errDetail${src}`);
+  if (data.error && !data.tuned) {
+    lockBadge.className = 'lock-badge unlocked';
+    lockBadge.innerHTML = `<span class="dot red"></span> Error`;
+    if (errDetail) { errDetail.textContent = data.error; errDetail.classList.remove('hidden'); }
+    return;
+  }
+  if (errDetail) { errDetail.textContent = ''; errDetail.classList.add('hidden'); }
+
+  if (!data.tuned) {
+    lockBadge.className = 'lock-badge waiting';
+    lockBadge.innerHTML = `<span class="dot amber"></span> Connecting…`;
+    return;
+  }
+
+  const locked = data.lock === true;
+  lockBadge.className = 'lock-badge ' + (locked ? 'locked' : 'unlocked');
+  lockBadge.innerHTML = `<span class="dot ${locked ? 'green' : 'red'}"></span> ${locked ? 'Locked' : 'No lock'}`;
+
+  trans.textContent = data.transponder || '—';
+
+  const sig = data.signal != null ? Math.min(100, Math.max(0, data.signal)) : null;
+  if (sig != null) {
+    sigBar.style.width = sig + '%';
+    sigBar.className = 'bar-fill ' + barColor(sig);
+    sigPct.textContent = sig.toFixed(1) + '%';
+  } else {
+    sigBar.style.width = '0%';
+    sigPct.textContent = '—';
+  }
+
+  const qual = data.quality != null ? Math.min(100, Math.max(0, data.quality)) : null;
+  if (qual != null) {
+    qualBar.style.width = qual + '%';
+    qualBar.className = 'bar-fill ' + barColor(qual);
+    qualPct.textContent = qual.toFixed(0) + '%';
+  } else {
+    qualBar.style.width = '0%';
+    qualPct.textContent = '—';
+  }
+}
+
+async function pollSignal() {
+  try {
+    const r = await fetch('/api/signal/status');
+    const data = await r.json();
+    for (const [src, info] of Object.entries(data)) {
+      updateSignalCard(parseInt(src), info);
+    }
+  } catch(e) {
+    console.warn('Signal poll error:', e);
+  }
+}
+
+function startPolling() {
+  pollSignal();
+  signalPollTimer = setInterval(pollSignal, 2000);
+}
+
+function stopPolling() {
+  if (signalPollTimer) { clearInterval(signalPollTimer); signalPollTimer = null; }
+}
+
+document.getElementById('btnTuneAll').addEventListener('click', async () => {
+  const errEl = document.getElementById('tuneError');
+  errEl.classList.add('hidden');
+  const host = document.getElementById('satipHost').value.trim();
+  const port = parseInt(document.getElementById('satipPort').value) || 554;
+  const count = parseInt(document.getElementById('srcCount').value) || 1;
+  const presetIdx = parseInt(document.getElementById('presetSelect').value);
+  const preset = PRESETS[presetIdx];
+
+  if (!host) { errEl.textContent = 'Enter the SAT>IP server host.'; errEl.classList.remove('hidden'); return; }
+  if (!preset) { errEl.textContent = 'Select a transponder preset.'; errEl.classList.remove('hidden'); return; }
+
+  stopPolling();
+  await fetch('/api/signal/teardown', { method: 'POST' });
+
+  // Build signal cards
+  const container = document.getElementById('signalCards');
+  container.innerHTML = '';
+  document.getElementById('signalIdle').classList.add('hidden');
+  const tuners = [];
+  for (let i = 1; i <= count; i++) {
+    container.appendChild(makeSignalCard(i));
+    tuners.push({ src: i, freq_hz: preset.freq_hz, pol: preset.pol, sr_ksps: preset.sr_ksps, msys: preset.msys });
+  }
+
+  try {
+    const r = await fetch('/api/signal/tune', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ host, port, tuners }),
+    });
+    if (!r.ok) {
+      const d = await r.json();
+      errEl.textContent = d.error || 'Tune request failed.';
+      errEl.classList.remove('hidden'); return;
+    }
+    monitoring = true;
+    document.getElementById('btnTuneAll').classList.add('hidden');
+    document.getElementById('btnStop').classList.remove('hidden');
+    startPolling();
+  } catch(e) {
+    errEl.textContent = 'Network error: ' + e.message;
+    errEl.classList.remove('hidden');
+  }
+});
+
+document.getElementById('btnStop').addEventListener('click', async () => {
+  stopPolling();
+  await fetch('/api/signal/teardown', { method: 'POST' });
+  monitoring = false;
+  document.getElementById('btnTuneAll').classList.remove('hidden');
+  document.getElementById('btnStop').classList.add('hidden');
+  document.getElementById('signalCards').innerHTML = '';
+  document.getElementById('signalIdle').classList.remove('hidden');
+});
+
+// stop monitoring if page loses visibility (e.g. phone lock)
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { stopPolling(); if (sensorsActive) stopSensors(); }
+  else if (monitoring) { startPolling(); }
+});
+
+// ── LIVE ALIGN ─────────────────────────────────────────────────────────────
+
+let liveAz = null, liveEl = null;
+let sensorsActive = false;
+let orientHandler = null;
+let orientAbsHandler = null;
+// UK 2026 approximate magnetic declination (degrees; negative = west = add to magnetic to get true)
+const MAG_DECL = -1.5;
+
+function angleDiff(from, to) {
+  // signed shortest-path difference: positive = to is clockwise of from
+  let d = to - from;
+  while (d >  180) d -= 360;
+  while (d < -180) d += 360;
+  return d;
+}
+
+function updateLiveTarget() {
+  if (targetAz === null) return;
+  document.getElementById('liveNoTarget').classList.add('hidden');
+  document.getElementById('liveTargetValues').classList.remove('hidden');
+  const skewSign = targetSkew >= 0 ? '+' : '';
+  document.getElementById('ltAz').textContent = targetAz.toFixed(1) + '°';
+  document.getElementById('ltAzDir').textContent = bearingToCardinal(targetAz);
+  document.getElementById('ltEl').textContent = targetEl.toFixed(1) + '°';
+  document.getElementById('ltSkew').textContent = skewSign + targetSkew.toFixed(1) + '°';
+  document.getElementById('ltSkewDir').textContent = targetSkew < 0 ? 'anticlockwise' : 'clockwise';
+  // keep the on-target banner skew value up to date
+  document.getElementById('onTargetSkew').textContent = skewSign + targetSkew.toFixed(1) + '°';
+}
+
+function renderCrosshair() {
+  if (liveAz === null || liveEl === null) return;
+
+  const azErr = targetAz !== null ? angleDiff(liveAz, targetAz) : 0;
+  const elErr = targetEl !== null ? (liveEl - targetEl) : 0;
+
+  // 10° maps to 100px radius (outer ring)
+  const SCALE = 10; // px per degree
+  const CX = 110, CY = 110, R = 100;
+
+  const rawDx = azErr * SCALE;
+  const rawDy = -elErr * SCALE; // +elevation error → dot moves down (needs more elevation = dish up)
+  // clamp to circle
+  const mag = Math.sqrt(rawDx * rawDx + rawDy * rawDy);
+  const clamp = mag > R ? R / mag : 1;
+  const dx = rawDx * clamp;
+  const dy = rawDy * clamp;
+
+  const dot = document.getElementById('xhairDot');
+  dot.setAttribute('cx', (CX + dx).toFixed(1));
+  dot.setAttribute('cy', (CY + dy).toFixed(1));
+
+  const azOk = targetAz === null || Math.abs(azErr) <= 2;
+  const elOk = targetEl === null || Math.abs(elErr) <= 1;
+  const onTarget = azOk && elOk;
+  const close = Math.abs(azErr) <= 5 && Math.abs(elErr) <= 2;
+
+  dot.setAttribute('fill', onTarget ? '#3fb950' : close ? '#d29922' : '#f85149');
+  document.getElementById('xhairRing').setAttribute('opacity', onTarget ? '1' : '0');
+
+  // axis readout cards
+  function setAxis(id, valId, targetId, diffId, val, tgt, ok, nearOk, diffStr) {
+    const card = document.getElementById(id);
+    card.className = 'live-axis ' + (ok ? 'on' : nearOk ? 'near' : 'off');
+    document.getElementById(valId).textContent = val;
+    document.getElementById(valId).style.color = ok ? 'var(--good)' : nearOk ? 'var(--warn)' : 'var(--bad)';
+    if (tgt !== null) {
+      document.getElementById(targetId).textContent = 'Target: ' + tgt;
+      document.getElementById(diffId).textContent = diffStr;
+      document.getElementById(diffId).style.color = ok ? 'var(--good)' : nearOk ? 'var(--warn)' : 'var(--bad)';
+    }
+  }
+
+  const azSign = azErr > 0 ? '▶ ' : azErr < 0 ? '◀ ' : '';
+  const elSign = elErr > 0 ? '▼ ' : elErr < 0 ? '▲ ' : '';
+  setAxis('axAz', 'liveAzVal', 'liveAzTarget', 'liveAzDiff',
+    liveAz.toFixed(1) + '°',
+    targetAz !== null ? targetAz.toFixed(1) + '°' : null,
+    azOk, Math.abs(azErr) <= 5,
+    azErr === 0 ? 'on target' : azSign + Math.abs(azErr).toFixed(1) + '° ' + (azErr > 0 ? 'right' : 'left'));
+  setAxis('axEl', 'liveElVal', 'liveElTarget', 'liveElDiff',
+    liveEl.toFixed(1) + '°',
+    targetEl !== null ? targetEl.toFixed(1) + '°' : null,
+    elOk, Math.abs(elErr) <= 2,
+    elErr === 0 ? 'on target' : elSign + Math.abs(elErr).toFixed(1) + '° ' + (elErr > 0 ? 'too high' : 'too low'));
+
+  if (onTarget && targetAz !== null) {
+    document.getElementById('onTargetBanner').classList.remove('hidden');
+  } else {
+    document.getElementById('onTargetBanner').classList.add('hidden');
+  }
+}
+
+function handleOrientationEvent(event) {
+  if (event.beta !== null && event.beta !== undefined) {
+    // beta = front-back tilt: 0° = flat face-up, +° = top lifted
+    // Clamp to 0–90 (we don't expect dish elevations outside this range)
+    liveEl = Math.max(0, Math.min(90, event.beta));
+  }
+
+  // Compass / azimuth — prefer webkitCompassHeading (iOS, already clockwise from mag N)
+  if (event.webkitCompassHeading !== undefined && event.webkitCompassHeading !== null) {
+    // Apply approximate magnetic declination to get True North
+    liveAz = ((event.webkitCompassHeading + MAG_DECL) + 360) % 360;
+    document.getElementById('sensorStatusLine').textContent =
+      'iOS compass · accuracy ±' + (event.webkitCompassAccuracy || '?') + '°';
+  } else if (event.absolute === true && event.alpha !== null) {
+    // Android DeviceOrientationAbsoluteEvent: alpha is CCW from true north → convert to CW
+    liveAz = (360 - event.alpha) % 360;
+    document.getElementById('sensorStatusLine').textContent = 'Android absolute compass';
+  } else if (event.alpha !== null && liveAz === null) {
+    // Fallback: non-absolute alpha — usable only relative, warn user
+    liveAz = (360 - event.alpha) % 360;
+    document.getElementById('sensorStatusLine').textContent =
+      '⚠ Relative compass only — azimuth may be offset from North';
+  }
+
+  renderCrosshair();
+}
+
+async function startSensors() {
+  // iOS 13+ requires explicit permission from a user gesture
+  if (typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof DeviceOrientationEvent.requestPermission === 'function') {
+    try {
+      const result = await DeviceOrientationEvent.requestPermission();
+      if (result !== 'granted') {
+        alert('Motion permission denied — check Settings → Safari → Motion & Orientation Access.');
+        return;
+      }
+    } catch (e) {
+      alert('Could not request sensor permission: ' + e.message);
+      return;
+    }
+  }
+
+  // Android: listen to absolute orientation first (referenced to True North)
+  orientAbsHandler = handleOrientationEvent;
+  if (typeof DeviceOrientationAbsoluteEvent !== 'undefined') {
+    window.addEventListener('deviceorientationabsolute', orientAbsHandler, true);
+  }
+  // iOS + fallback: standard deviceorientation (provides webkitCompassHeading on iOS)
+  orientHandler = handleOrientationEvent;
+  window.addEventListener('deviceorientation', orientHandler, true);
+
+  sensorsActive = true;
+  document.getElementById('sensorStartSection').classList.add('hidden');
+  document.getElementById('sensorActiveSection').classList.remove('hidden');
+  document.getElementById('sensorStatusLine').textContent = 'Waiting for sensor data…';
+}
+
+function stopSensors() {
+  if (orientHandler) {
+    window.removeEventListener('deviceorientation', orientHandler, true);
+    orientHandler = null;
+  }
+  if (orientAbsHandler) {
+    window.removeEventListener('deviceorientationabsolute', orientAbsHandler, true);
+    orientAbsHandler = null;
+  }
+  sensorsActive = false;
+  liveAz = null; liveEl = null;
+  document.getElementById('sensorStartSection').classList.remove('hidden');
+  document.getElementById('sensorActiveSection').classList.add('hidden');
+  // reset crosshair dot
+  const dot = document.getElementById('xhairDot');
+  dot.setAttribute('cx', '110'); dot.setAttribute('cy', '110');
+  dot.setAttribute('fill', '#d29922');
+  document.getElementById('xhairRing').setAttribute('opacity', '0');
+  document.getElementById('onTargetBanner').classList.add('hidden');
+}
+
+document.getElementById('btnStartSensors').addEventListener('click', startSensors);
+document.getElementById('btnStopSensors').addEventListener('click', stopSensors);
+</script>
+</body>
+</html>
