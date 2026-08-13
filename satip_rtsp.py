@@ -116,7 +116,11 @@ class SatIpSession:
                 raise ConnectionError(f"DESCRIBE rejected: {resp.splitlines()[0]}")
 
             self._stream_url = self._parse_control_url(resp)
-            logger.debug("SAT>IP src=%d: control URL → %s", self.src, self._stream_url)
+            # minisatip v2.x embeds signal data in the SDP fmtp attribute —
+            # parse it now so we show signal state immediately, before PLAY.
+            initial_sig = self._parse_fmtp_signal(resp)
+            logger.debug("SAT>IP src=%d: control URL → %s, initial signal: %s",
+                         self.src, self._stream_url, initial_sig)
 
             # SETUP on the control URL
             resp = self._send('SETUP', self._stream_url, {
@@ -134,7 +138,8 @@ class SatIpSession:
             if '200 OK' not in resp:
                 raise ConnectionError(f"PLAY rejected: {resp.splitlines()[0]}")
 
-            self._update(tuned=True, error=None, **self._parse_headers(resp))
+            # Apply initial signal from DESCRIBE (tuner already locked at this point)
+            self._update(tuned=True, error=None, **(initial_sig or {}))
 
             # Background thread discards incoming RTP so the OS buffer doesn't fill
             drain_stop = threading.Event()
@@ -142,13 +147,11 @@ class SatIpSession:
             drain.start()
 
             try:
-                # Give the DVB tuner time to acquire lock before first poll
-                time.sleep(3)
                 while not self._stop.is_set():
                     sig = self._poll_signal()
                     if sig:
                         self._update(**sig)
-                    time.sleep(2)
+                    time.sleep(3)
             finally:
                 drain_stop.set()
         finally:
@@ -222,15 +225,31 @@ class SatIpSession:
         return data.decode(errors='replace')
 
     def _poll_signal(self) -> dict | None:
-        body = "Signal\r\nLock\r\nLevel\r\nQuality\r\n"
+        # minisatip v2.x does not support GET_PARAMETER — signal state is embedded
+        # in the SDP fmtp attribute returned by DESCRIBE on the active stream URL.
         try:
-            # 30-second timeout: some devices hold GET_PARAMETER until the tuner locks
-            resp = self._send('GET_PARAMETER', self._stream_url, body=body, timeout=30)
+            resp = self._send('DESCRIBE', self._stream_url,
+                              {'Accept': 'application/sdp'}, timeout=10)
+            if '200 OK' in resp:
+                return self._parse_fmtp_signal(resp)
         except socket.timeout:
-            logger.debug("SAT>IP src=%d: GET_PARAMETER timed out — will retry", self.src)
+            logger.debug("SAT>IP src=%d: DESCRIBE poll timed out", self.src)
+        return None
+
+    def _parse_fmtp_signal(self, resp: str) -> dict | None:
+        # SAT>IP SDP: a=fmtp:33 ver=1.0;src=N;tuner=<id>,<level>,<lock>,<quality>,...
+        # level: 0-255, lock: 0/1, quality: 0-15
+        m = re.search(r'tuner=\d+,(\d+),(\d+),(\d+)', resp)
+        if not m:
             return None
-        parsed = self._parse_body(resp) or self._parse_headers(resp)
-        return parsed if parsed else None
+        level = int(m.group(1))
+        lock = int(m.group(2))
+        quality = int(m.group(3))
+        return {
+            'lock': lock == 1,
+            'signal': round(level / 255 * 100, 1),
+            'quality': round(quality / 15 * 100, 1),
+        }
 
     def _parse_control_url(self, resp: str) -> str:
         sep = '\r\n\r\n' if '\r\n\r\n' in resp else '\n\n'
