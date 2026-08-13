@@ -142,6 +142,8 @@ class SatIpSession:
             drain.start()
 
             try:
+                # Give the DVB tuner time to acquire lock before first poll
+                time.sleep(3)
                 while not self._stop.is_set():
                     sig = self._poll_signal()
                     if sig:
@@ -178,7 +180,8 @@ class SatIpSession:
         self._cseq = 0
 
     def _send(self, method: str, url: str,
-              extra: dict | None = None, body: str | None = None) -> str:
+              extra: dict | None = None, body: str | None = None,
+              timeout: float = 10) -> str:
         self._cseq += 1
         parts = [
             f"{method} {url} RTSP/1.0",
@@ -196,11 +199,11 @@ class SatIpSession:
         if body:
             req += body
         self._tcp.sendall(req.encode())
-        return self._recv()
+        return self._recv(timeout)
 
-    def _recv(self) -> str:
+    def _recv(self, timeout: float = 10) -> str:
         data = b""
-        self._tcp.settimeout(8)
+        self._tcp.settimeout(timeout)
         while True:
             chunk = self._tcp.recv(4096)
             if not chunk:
@@ -220,8 +223,12 @@ class SatIpSession:
 
     def _poll_signal(self) -> dict | None:
         body = "Signal\r\nLock\r\nLevel\r\nQuality\r\n"
-        resp = self._send('GET_PARAMETER', self._stream_url, body=body)
-        # Try body first, then headers
+        try:
+            # 30-second timeout: some devices hold GET_PARAMETER until the tuner locks
+            resp = self._send('GET_PARAMETER', self._stream_url, body=body, timeout=30)
+        except socket.timeout:
+            logger.debug("SAT>IP src=%d: GET_PARAMETER timed out — will retry", self.src)
+            return None
         parsed = self._parse_body(resp) or self._parse_headers(resp)
         return parsed if parsed else None
 
