@@ -98,6 +98,21 @@ def teardown():
     monitor.teardown()
     return jsonify({'ok': True})
 
+@app.route('/api/signal/tune-aggregate', methods=['POST'])
+def tune_aggregate():
+    body = request.json or {}
+    host = (body.get('host') or '').strip()
+    port = int(body.get('port') or 554)
+    src_list = [int(s) for s in (body.get('src_list') or [1])]
+    if not host:
+        return jsonify({'error': 'host is required'}), 400
+    monitor.tune_aggregate(host, port, src_list)
+    return jsonify({'ok': True, 'srcs': src_list})
+
+@app.route('/api/signal/aggregate-status')
+def aggregate_status():
+    return jsonify(monitor.aggregate_status())
+
 @app.route('/api/satellites')
 def satellites():
     return jsonify(SATELLITES)

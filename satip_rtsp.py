@@ -313,24 +313,202 @@ class SatIpSession:
         return result if result else None
 
 
+# ── Reference transponders for aggregate dish alignment (Astra 28.2°E) ─────────
+# Spread across H/V polarisations and DVB-S/S2 to exercise both LNB outputs
+# and the full tuner range.
+ASTRA_282_REFERENCE = [
+    {'label': '11425H',  'freq_hz': 11425000, 'pol': 'H', 'sr_ksps': 27500, 'msys': 'dvbs'},
+    {'label': '11344H',  'freq_hz': 11344000, 'pol': 'H', 'sr_ksps': 27500, 'msys': 'dvbs'},
+    {'label': '11778V',  'freq_hz': 11778000, 'pol': 'V', 'sr_ksps': 27500, 'msys': 'dvbs'},
+    {'label': '10818V',  'freq_hz': 10817500, 'pol': 'V', 'sr_ksps': 23000, 'msys': 'dvbs2'},
+    {'label': '11671H',  'freq_hz': 11670750, 'pol': 'H', 'sr_ksps': 23000, 'msys': 'dvbs2'},
+]
+
+
+def _rtsp_recv(tcp: socket.socket) -> str:
+    data = b""
+    while True:
+        chunk = tcp.recv(4096)
+        if not chunk:
+            break
+        data += chunk
+        if b"\r\n\r\n" in data:
+            hdr_end = data.index(b"\r\n\r\n") + 4
+            hdr = data[:hdr_end].decode(errors='replace')
+            m = re.search(r'Content-Length:\s*(\d+)', hdr, re.IGNORECASE)
+            if m:
+                cl = int(m.group(1))
+                if len(data) >= hdr_end + cl:
+                    break
+            else:
+                break
+    return data.decode(errors='replace')
+
+
+def _rtsp_control_url(resp: str, host: str, port: int) -> str:
+    sep = '\r\n\r\n' if '\r\n\r\n' in resp else '\n\n'
+    body = resp.split(sep, 1)[1] if sep in resp else ''
+    for line in body.splitlines():
+        line = line.strip()
+        if line.lower().startswith('a=control:'):
+            url = line[len('a=control:'):].strip()
+            if url.startswith('rtsp://'):
+                return url
+            return f"rtsp://{host}:{port}/{url.lstrip('/')}"
+    return f"rtsp://{host}:{port}/stream=1"
+
+
+def _rtsp_fmtp(resp: str) -> dict | None:
+    m = re.search(r'tuner=\d+,(\d+),(\d+),(\d+)', resp)
+    if not m:
+        return None
+    level, lock, quality = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    return {
+        'lock': lock == 1,
+        'signal': round(level / 255 * 100, 1),
+        'quality': round(quality / 15 * 100, 1),
+    }
+
+
+class AggregatedSession:
+    """
+    Cycles through a list of transponders on one src tuner, storing the most
+    recent lock/signal/quality for each. Exposes aggregate metrics for the UI.
+
+    For each transponder the flow is:
+      DESCRIBE (allocates tuner, starts DVB tuning) →
+      wait 0.9 s for frontend to lock →
+      DESCRIBE on stream URL (reads settled state) →
+      TCP close (releases tuner)
+    """
+
+    def __init__(self, host: str, port: int, src: int, transponders: list[dict]):
+        self.host = host
+        self.port = port
+        self.src = src
+        self._transponders = transponders
+        self._readings: dict[str, dict] = {}
+        self._rlock = threading.Lock()
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        self._thread = threading.Thread(
+            target=self._run, daemon=True, name=f'satip-agg-src{self.src}')
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread:
+            self._thread.join(timeout=15)
+
+    def get_status(self) -> dict:
+        with self._rlock:
+            readings = list(self._readings.values())
+        total = len(self._transponders)
+        if not readings:
+            return {
+                'src': self.src, 'ready': False,
+                'locked': 0, 'total': total,
+                'signal': None, 'quality': None, 'score': None,
+                'transponders': [],
+            }
+        locked = sum(1 for r in readings if r.get('lock'))
+        signals = [r['signal'] for r in readings if r.get('signal') is not None]
+        qualities = [r['quality'] for r in readings if r.get('quality') is not None]
+        avg_sig = round(sum(signals) / len(signals), 1) if signals else None
+        avg_qual = round(sum(qualities) / len(qualities), 1) if qualities else None
+        lock_pct = locked / total * 100
+        score = round((lock_pct + avg_sig + avg_qual) / 3, 1) \
+            if avg_sig is not None and avg_qual is not None else None
+        return {
+            'src': self.src, 'ready': True,
+            'locked': locked, 'total': total,
+            'signal': avg_sig, 'quality': avg_qual, 'score': score,
+            'transponders': sorted(readings, key=lambda r: r['label']),
+        }
+
+    def _run(self) -> None:
+        idx = 0
+        while not self._stop.is_set():
+            tp = self._transponders[idx % len(self._transponders)]
+            try:
+                reading = self._read_transponder(tp)
+                with self._rlock:
+                    self._readings[tp['label']] = reading
+            except Exception as e:
+                logger.debug("SAT>IP agg src=%d %s: %s", self.src, tp['label'], e)
+                with self._rlock:
+                    self._readings.setdefault(tp['label'], {'label': tp['label']})['error'] = str(e)
+            idx += 1
+            if not self._stop.is_set():
+                time.sleep(0.4)
+
+    def _read_transponder(self, tp: dict) -> dict:
+        freq_mhz = tp['freq_hz'] / 1000.0
+        pol = tp['pol'].lower()
+        msys = tp['msys'].lower()
+        tune_url = (
+            f"rtsp://{self.host}:{self.port}/"
+            f"?src={self.src}&freq={freq_mhz:.3f}&pol={pol}"
+            f"&msys={msys}&sr={tp['sr_ksps']}&fec=auto&pids=0"
+        )
+
+        tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        tcp.settimeout(8)
+        cseq = 0
+
+        def req(method, url, extra=None):
+            nonlocal cseq
+            cseq += 1
+            lines = [f"{method} {url} RTSP/1.0", f"CSeq: {cseq}", "User-Agent: SatIPAligner/1.0"]
+            if extra:
+                lines.extend(f"{k}: {v}" for k, v in extra.items())
+            tcp.sendall(("\r\n".join(lines) + "\r\n\r\n").encode())
+            return _rtsp_recv(tcp)
+
+        try:
+            tcp.connect((self.host, self.port))
+
+            resp = req('DESCRIBE', tune_url, {'Accept': 'application/sdp'})
+            if '200 OK' not in resp:
+                return {'label': tp['label'], 'lock': False, 'signal': None, 'quality': None}
+
+            stream_url = _rtsp_control_url(resp, self.host, self.port)
+            sig = _rtsp_fmtp(resp)
+
+            time.sleep(0.9)  # let DVB frontend acquire lock
+
+            resp2 = req('DESCRIBE', stream_url, {'Accept': 'application/sdp'})
+            if '200 OK' in resp2:
+                sig = _rtsp_fmtp(resp2) or sig
+
+            return {
+                'label': tp['label'],
+                'lock': bool(sig.get('lock')) if sig else False,
+                'signal': sig.get('signal') if sig else None,
+                'quality': sig.get('quality') if sig else None,
+                'error': None,
+            }
+        finally:
+            tcp.close()
+
+
 class SignalMonitor:
-    """Manages per-src SAT>IP signal sessions."""
+    """Manages per-src SAT>IP signal sessions (single-transponder or aggregate)."""
 
     def __init__(self) -> None:
         self._sessions: dict[int, SatIpSession] = {}
+        self._agg_sessions: dict[int, AggregatedSession] = {}
         self._lock = threading.Lock()
 
     def tune(self, host: str, port: int, tuners: list[dict]) -> None:
         with self._lock:
-            for s in self._sessions.values():
-                s.stop()
-            self._sessions.clear()
+            self._stop_all()
             for t in tuners:
                 src = int(t.get('src', 1))
                 sess = SatIpSession(
-                    host=host,
-                    port=port,
-                    src=src,
+                    host=host, port=port, src=src,
                     freq_hz=int(t.get('freq_hz', 11425000)),
                     pol=t.get('pol', 'H'),
                     sr_ksps=int(t.get('sr_ksps', 27500)),
@@ -339,12 +517,33 @@ class SignalMonitor:
                 sess.start()
                 self._sessions[src] = sess
 
+    def tune_aggregate(self, host: str, port: int, src_list: list[int]) -> None:
+        with self._lock:
+            self._stop_all()
+            for src in src_list:
+                sess = AggregatedSession(
+                    host=host, port=port, src=src,
+                    transponders=ASTRA_282_REFERENCE,
+                )
+                sess.start()
+                self._agg_sessions[src] = sess
+
     def status(self) -> dict:
         with self._lock:
             return {str(src): s.get_status() for src, s in self._sessions.items()}
 
+    def aggregate_status(self) -> list[dict]:
+        with self._lock:
+            return [s.get_status() for s in self._agg_sessions.values()]
+
     def teardown(self) -> None:
         with self._lock:
-            for s in self._sessions.values():
-                s.stop()
-            self._sessions.clear()
+            self._stop_all()
+
+    def _stop_all(self) -> None:
+        for s in self._sessions.values():
+            s.stop()
+        for s in self._agg_sessions.values():
+            s.stop()
+        self._sessions.clear()
+        self._agg_sessions.clear()
